@@ -717,6 +717,7 @@ tr.rs-vencido  { background: #ffe4e4 !important; }
           <option value="Análise">Em Análise</option>
           <option value="Exigência">Exigência</option>
           <option value="Autorizado">Autorizado</option>
+          <option value="Arquivado">Arquivado</option>
           <option value="Negada">Negada</option>
         </select>
       </div>
@@ -993,61 +994,56 @@ async function doLogout() {
 // DADOS
 // ═══════════════════════════════════════════════
 function gerarMeses() {
-  // Gera últimos 5 meses + mês atual + próximo = 7 abas
+  // Retorna apenas meses que têm dados + mês atual
   const now = new Date();
-  const keys = [];
-  for (let i = -5; i <= 1; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    keys.push(`${MESES_KEY[d.getMonth()]} ${d.getFullYear()}`);
-  }
-  return keys;
+  const mesAtual = `${MESES_KEY[now.getMonth()]} ${now.getFullYear()}`;
+  const comDados = Object.entries(DB)
+    .filter(([k, v]) => v && v.length > 0 && k !== mesAtual)
+    .map(([k]) => k);
+  const todos = [...new Set([...comDados, mesAtual])];
+  // Ordenar cronologicamente
+  todos.sort((a, b) => {
+    const [ma, ya] = a.split(' ');
+    const [mb, yb] = b.split(' ');
+    return ya !== yb ? parseInt(ya) - parseInt(yb) : MESES_KEY.indexOf(ma) - MESES_KEY.indexOf(mb);
+  });
+  return todos;
 }
 
 async function loadAll() {
-  // Sempre gera meses localmente primeiro
-  const mesesLocais = gerarMeses();
-  mesesLocais.forEach(m => { if (!DB[m]) DB[m] = []; });
-  MESES = mesesLocais;
-
-  // Tab padrão = mês atual
   const now = new Date();
   const mesAtual = `${MESES_KEY[now.getMonth()]} ${now.getFullYear()}`;
-  if (!currentTab || !MESES.includes(currentTab)) currentTab = mesAtual;
 
   try {
     const d = await api('getAll');
-
-    // Mesclar dados do Sheets com meses locais
-    const mesesSheets = d.meses || [];
-    const todosMeses  = [...new Set([...mesesLocais, ...mesesSheets])];
-    todosMeses.sort((a,b) => {
-      const [ma,ya] = a.split(' '); const [mb,yb] = b.split(' ');
-      const ia = MESES_KEY.indexOf(ma); const ib = MESES_KEY.indexOf(mb);
-      return ya!==yb ? parseInt(ya)-parseInt(yb) : ia-ib;
-    });
-    MESES = todosMeses;
-
-    // Carregar dados de cada mês do Sheets
-    const dbSheets = d.db || {};
-    Object.entries(dbSheets).forEach(([mes, rows]) => {
-      DB[mes] = rows;
-    });
-    // Garantir que meses locais existam
-    MESES.forEach(m => { if (!DB[m]) DB[m] = []; });
-
+    DB     = d.db     || {};
     UNIMED = d.unimed || [];
     USERS  = d.users  || [];
     AUDIT  = d.audit  || [];
     CONFIG = d.config || {};
 
-    // Checar encerramento via planilha
     if (CONFIG.status === 'inativo') { showEncerramento(); return; }
 
-    const ids = [...Object.values(DB).flat(), ...UNIMED, ...USERS].map(r => parseInt(r.id) || 0);
-    nextId = ids.length ? Math.max(...ids) + 1 : 9000;
+    // Apenas meses que vêm do Sheets, ordenados
+    const mesesSheets = d.meses || Object.keys(DB);
+    MESES = [...new Set(mesesSheets)].sort((a, b) => {
+      const [ma, ya] = a.split(' ');
+      const [mb, yb] = b.split(' ');
+      return ya !== yb ? parseInt(ya)-parseInt(yb) : MESES_KEY.indexOf(ma)-MESES_KEY.indexOf(mb);
+    });
+
+    // Garantir mês atual
+    if (!DB[mesAtual]) DB[mesAtual] = [];
+    if (!MESES.includes(mesAtual)) MESES.push(mesAtual);
+    if (!currentTab || !MESES.includes(currentTab)) currentTab = mesAtual;
+
+    const ids = [...Object.values(DB).flat(), ...UNIMED, ...USERS].map(r => parseInt(r.id)||0);
+    nextId = ids.length ? Math.max(...ids)+1 : 9000;
 
   } catch(e) {
-    toast('Sem conexão com Sheets — exibindo meses locais', true);
+    if (!DB[mesAtual]) DB[mesAtual] = [];
+    MESES = [mesAtual]; currentTab = mesAtual;
+    toast('Sem conexão com Sheets', true);
   }
 }
 
@@ -1072,7 +1068,7 @@ function tabCount(t) {
   if (t === '⚙ Administração') return USERS.length;
   if (t === '🚨 Urgentes')     return getUrgentes().length;
   if (t === '✅ Arquivados')   return getArquivados().length;
-  return (DB[t] || []).filter(r => r.status !== 'Autorizado').length;
+  return (DB[t] || []).filter(r => r.status !== 'Autorizado' && r.status !== 'Arquivado').length;
 }
 
 function buildTabs() {
@@ -1109,6 +1105,8 @@ function updateStats() {
   set('st-total',     all.filter(r => r.status !== 'Autorizado').length);
   set('st-urgentes',  getUrgentes().length);
   set('st-arquivados',getArquivados().length);
+  // Recalcular meses ao atualizar stats
+  MESES = gerarMeses();
 }
 
 // ═══════════════════════════════════════════════
@@ -1185,7 +1183,9 @@ function getUrgentes() {
 function getArquivados() {
   const out = [];
   Object.entries(DB).forEach(([tab, rows]) => {
-    (rows||[]).forEach(r => { if (r.status === 'Autorizado') out.push({...r, _tab: tab}); });
+    (rows||[]).forEach(r => {
+      if (r.status === 'Autorizado' || r.status === 'Arquivado') out.push({...r, _tab: tab});
+    });
   });
   return out.sort((a,b) => (b.editedAt||b.createdAt||'').localeCompare(a.editedAt||a.createdAt||''));
 }
@@ -1212,6 +1212,7 @@ function badge(s) {
     'Exigência': ['b-exigencia','⏸'],
     'Negada':    ['b-negada','✗'],
     'Autorizado':['b-autorizado','✓'],
+    'Arquivado': ['b-arquivado','📁'],
   };
   const [c, i] = m[s] || ['b-analise','?'];
   return `<span class="badge ${c}">${i} ${s}</span>`;
@@ -1254,7 +1255,7 @@ function sa(k) {
 
 // ── MAIN TABLE ────────────────────────────────────────────────────
 function getRows() {
-  let rows = [...(DB[currentTab]||[])].filter(r => r.status !== 'Autorizado');
+  let rows = [...(DB[currentTab]||[])].filter(r => r.status !== 'Autorizado' && r.status !== 'Arquivado');
   if (currentFilter !== 'all') rows = rows.filter(r => r.status === currentFilter);
   if (currentConv !== 'Todos') rows = rows.filter(r => r.convenio === currentConv);
   if (sortKey) {
@@ -1285,6 +1286,7 @@ function buildRows(rows) {
       <td><div class="acts">
         <button class="act" onclick="openAuth('${r.id}')">✏</button>
         <button class="act" onclick="openHist('${r.id}')">🕐</button>
+        <button class="act success" onclick="arquivar('${r.id}')" title="Arquivar">📁</button>
         ${isAdmin?`<button class="act danger" onclick="delAuth('${r.id}')">🗑</button>`:''}
       </div></td>
     </tr>`).join('');
@@ -1720,10 +1722,24 @@ async function delUser(id){
 // ═══════════════════════════════════════════════
 // ARQUIVADOS — ACTIONS
 // ═══════════════════════════════════════════════
+async function arquivar(id) {
+  const idx = (DB[currentTab]||[]).findIndex(x => String(x.id) === String(id));
+  if (idx === -1) return;
+  const r = DB[currentTab][idx];
+  DB[currentTab][idx] = {...r, status:'Arquivado', editedBy:currentUser.login, editedAt:nowStr()};
+  buildTabs(); render();
+  try {
+    await api('saveAuth', {tab:currentTab, record:DB[currentTab][idx]});
+    await pushAudit('edit', `Arquivou reg. ${r.registro} — ${r.nome}`);
+    toast('📁 Registro arquivado');
+  } catch(e) { toast('Erro: '+e.message, true); }
+}
+
 async function reabrir(tab, id) {
   const idx=(DB[tab]||[]).findIndex(x=>String(x.id)===String(id));
   if(idx===-1)return;
   DB[tab][idx]={...DB[tab][idx],status:'Análise',editedBy:currentUser.login,editedAt:nowStr()};
+  MESES=gerarMeses();
   buildTabs();render();
   try{await api('saveAuth',{tab,record:DB[tab][idx]});await pushAudit('edit',`Reabriu reg. ${DB[tab][idx].registro} — ${DB[tab][idx].nome}`);toast('↩ Registro reaberto para Em Análise');}
   catch(e){toast('Erro: '+e.message,true);}
