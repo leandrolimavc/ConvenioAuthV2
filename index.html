@@ -1113,13 +1113,34 @@ function updateStats() {
 // PRAZO
 // ═══════════════════════════════════════════════
 function parseDate(raw) {
-  if (!raw) return null;
+  if (!raw || typeof raw !== 'string') return null;
+  raw = raw.trim();
+
+  // dd/mm/yyyy ou dd/mm/yyyy hh:mm
   let m = raw.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+
+  // yyyy-mm-dd
   m = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+
+  // dd-mm-yyyy
+  m = raw.match(/(\d{2})-(\d{2})-(\d{4})/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+
+  // Formato Google Sheets: "Thu May 21 2026 16:00:00 GMT-0300..."
+  // Extrai dia, mês e ano da string
+  const MESES_EN = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  m = raw.match(/([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})/);
+  if (m) {
+    const mes = MESES_EN[m[1]];
+    if (mes !== undefined) return new Date(+m[3], mes, +m[2]);
+  }
+
+  // Fallback: new Date nativo
   const d = new Date(raw);
   if (!isNaN(d)) return d;
+
   return null;
 }
 
@@ -1134,15 +1155,20 @@ function addWorkDays(base, days) {
 }
 
 function calcPrazo(r) {
+  // Só calcula para registros em Análise
   if (r.status !== 'Análise') return { status: 'sem' };
   const dias = PRAZOS[r.convenio];
   if (!dias) return { status: 'sem' };
 
+  // Tenta todas as fontes de data em ordem de prioridade
   let base = null;
-  for (const src of [r.createdAt, r.data, r.editedAt]) {
+  for (const src of [r.createdAt, r.data, r.timestamp, r.editedAt]) {
+    if (!src) continue;
     base = parseDate(src);
     if (base && !isNaN(base)) break;
   }
+
+  // Sem data: usa hoje (registro migrado sem data)
   if (!base || isNaN(base)) base = new Date();
 
   const deadline = addWorkDays(base, dias);
@@ -1150,11 +1176,12 @@ function calcPrazo(r) {
   deadline.setHours(0,0,0,0);
   const diff = Math.round((deadline - hoje) / 86400000);
 
-  let st = diff < 0 ? 'vencido' : diff <= 2 ? 'urgente' : diff <= 4 ? 'alerta' : 'ok';
-  let label = diff < 0 ? `⚠ Vencido há ${Math.abs(diff)}d` :
+  let st    = diff < 0 ? 'vencido' : diff <= 2 ? 'urgente' : diff <= 4 ? 'alerta' : 'ok';
+  let label = diff < 0  ? `⚠ Vencido há ${Math.abs(diff)}d` :
               diff === 0 ? '🔴 Vence hoje!' :
               diff <= 2  ? `🔴 ${diff}d úteis` :
-              diff <= 4  ? `🟡 ${diff}d úteis` : `🟢 ${diff}d úteis`;
+              diff <= 4  ? `🟡 ${diff}d úteis` :
+                           `🟢 ${diff}d úteis`;
 
   return { status: st, label, diff, deadline, dias };
 }
@@ -1405,30 +1432,62 @@ function renderUrgentes() {
     }`;
 }
 
-// ── ARQUIVADOS ────────────────────────────────────────────────────
+// ── ARQUIVADOS ────────────────────────────────────────────────────────────────
+let arquFilter = 'all';
+let arquConv   = 'Todos';
+let arquSearch = '';
+
 function renderArquivados() {
   const isAdmin = currentUser?.role === 'admin';
+  const todos   = getArquivados();
+  const total   = todos.length;
+
+  // Filtros
+  let filtrados = [...todos];
+  if (arquFilter !== 'all') filtrados = filtrados.filter(r => r.status === arquFilter);
+  if (arquConv !== 'Todos') filtrados = filtrados.filter(r => r.convenio === arquConv);
+  if (arquSearch) {
+    const q = arquSearch.toLowerCase();
+    filtrados = filtrados.filter(r =>
+      (r.registro||'').includes(q)||(r.nome||'').toLowerCase().includes(q)||
+      (r.convenio||'').toLowerCase().includes(q)||(r.guia||'').includes(q)
+    );
+  }
+
+  // Agrupar por mês
   const byMes = {};
-  getArquivados().forEach(r => { (byMes[r._tab] = byMes[r._tab]||[]).push(r); });
-  const total = getArquivados().length;
+  filtrados.forEach(r => { (byMes[r._tab] = byMes[r._tab]||[]).push(r); });
+
+  // Convênios e status disponíveis
+  const convs = ['Todos',...new Set(todos.map(r=>r.convenio).filter(Boolean))].sort((a,b)=>a==='Todos'?-1:a.localeCompare(b,'pt-BR'));
+  const convBtns = convs.map(c=>`<button class="conv-pill${arquConv===c?' on':''}" onclick="setArquConv('${c}')">${c}</button>`).join('');
+  const statusList = [...new Set(todos.map(r=>r.status).filter(Boolean))];
+  const statusBtns = [
+    `<button class="filter-btn${arquFilter==='all'?' fa':''}" onclick="setArquFilter('all')">Todos</button>`,
+    ...statusList.map(s=>`<button class="filter-btn${arquFilter===s?' fa':''}" onclick="setArquFilter('${s}')">${s}</button>`)
+  ].join('');
 
   const body = Object.keys(byMes).length === 0
-    ? `<div class="empty" style="padding:60px"><div class="empty-ico">✅</div><div>Nenhuma autorização arquivada ainda</div></div>`
+    ? `<div class="empty" style="padding:60px"><div class="empty-ico">📁</div><div>Nenhum registro encontrado</div></div>`
     : Object.entries(byMes).map(([mes, rows]) => `
         <div class="mes-label">📅 ${getMesLabel(mes)} — ${rows.length} registro${rows.length!==1?'s':''}</div>
         <div class="card" style="margin-bottom:16px">
           <table>
-            <thead><tr><th>Registro</th><th>Convênio</th><th>Paciente</th><th>Guia</th><th>Arquivado por</th><th>Obs.</th><th>Ações</th></tr></thead>
+            <thead><tr>
+              <th>Registro</th><th>Status</th><th>Convênio</th><th>Paciente</th>
+              <th>Guia</th><th>Rastreio</th><th>Obs.</th><th>Ações</th>
+            </tr></thead>
             <tbody>${rows.map((r,i)=>`
               <tr style="animation-delay:${i*.02}s">
                 <td class="num">${r.registro||'—'}</td>
+                <td>${badge(r.status)}</td>
                 <td>${convTag(r.convenio)}</td>
                 <td class="nome-cell">${r.nome||'—'}</td>
                 <td class="num" style="color:var(--muted)">${r.guia||'—'}</td>
                 <td>${rastreioCell(r)}</td>
                 <td class="obs-cell">${r.obs||'—'}</td>
                 <td><div class="acts">
-                  <button class="act success" onclick="reabrir('${r._tab}','${r.id}')" title="Reabrir">↩ Reabrir</button>
+                  <button class="act success" onclick="reabrir('${r._tab}','${r.id}')">↩ Reabrir</button>
                   <button class="act" onclick="openHist('${r.id}')">🕐</button>
                   ${isAdmin?`<button class="act danger" onclick="delArquivado('${r._tab}','${r.id}')">🗑</button>`:''}
                 </div></td>
@@ -1440,11 +1499,24 @@ function renderArquivados() {
   return `
     <div class="section-banner sb-arch">
       <div class="sb-icon">✅</div>
-      <div><div class="sb-title">Autorizações Arquivadas</div><div class="sb-sub">Registros autorizados. Clique em "Reabrir" para mover de volta.</div></div>
-      <div class="sb-count">${total} arquivado${total!==1?'s':''}</div>
+      <div><div class="sb-title">Autorizações Arquivadas</div>
+      <div class="sb-sub">Clique em "Reabrir" para mover de volta para Em Análise</div></div>
+      <div class="sb-count">${filtrados.length} de ${total}</div>
     </div>
+    <div class="toolbar">
+      <div class="search-box"><span class="search-icon">🔍</span>
+        <input type="text" id="arqu-srch" placeholder="Buscar nos arquivados..." value="${arquSearch}"
+          oninput="arquSearch=this.value;renderArqInPlace()">
+      </div>
+      ${statusBtns}
+    </div>
+    <div class="conv-bar"><span class="conv-bar-label">Convênio:</span>${convBtns}</div>
     ${body}`;
 }
+
+function setArquFilter(f) { arquFilter=f; renderArqInPlace(); }
+function setArquConv(c)   { arquConv=c;   renderArqInPlace(); }
+function renderArqInPlace() { document.getElementById('main').innerHTML = renderArquivados(); }
 
 // ── UNIMED ────────────────────────────────────────────────────────
 function renderUnimed() {
