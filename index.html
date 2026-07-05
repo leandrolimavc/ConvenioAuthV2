@@ -874,9 +874,10 @@ let MESES  = [];
 let CONFIG = {};
 let HISTORY = {};
 
-let currentTab    = '';
+let currentTab    = '📋 Autorizações';
 let currentFilter = 'all';
 let currentConv   = 'Todos';
+let currentMes    = 'Todos';
 let sortKey = '';
 let sortDir = 1;
 let editAuthId   = null;
@@ -1035,7 +1036,7 @@ async function loadAll() {
     // Garantir mês atual
     if (!DB[mesAtual]) DB[mesAtual] = [];
     if (!MESES.includes(mesAtual)) MESES.push(mesAtual);
-    if (!currentTab || !MESES.includes(currentTab)) currentTab = mesAtual;
+    if (!currentTab || currentTab === '') currentTab = '📋 Autorizações';
 
     const ids = [...Object.values(DB).flat(), ...UNIMED, ...USERS].map(r => parseInt(r.id)||0);
     nextId = ids.length ? Math.max(...ids)+1 : 9000;
@@ -1346,6 +1347,7 @@ function renderMain() {
     <div class="card">
       <table>
         <thead><tr>
+          <th onclick="doSort('_mes')">Mês ${sa('_mes')}</th>
           <th onclick="doSort('registro')">Registro ${sa('registro')}</th>
           <th onclick="doSort('status')">Status ${sa('status')}</th>
           <th onclick="doSort('convenio')">Convênio ${sa('convenio')}</th>
@@ -1355,7 +1357,7 @@ function renderMain() {
         <tbody id="tbody">${buildRows(rows)}</tbody>
       </table>
       <div class="tfoot">
-        <span id="row-count">${rows.length} de ${total} registros</span>
+        <span id="row-count">${rows.length} de ${total} registros (todos os meses)</span>
         <div style="display:flex;gap:10px;align-items:center">
           <button class="btn-csv" onclick="exportCSV()">↓ CSV</button>
           <span>Fonte: Google Sheets ✓</span>
@@ -1795,16 +1797,17 @@ async function delUser(id){
 // ARQUIVADOS — ACTIONS
 // ═══════════════════════════════════════════════
 async function arquivar(id) {
-  const idx = (DB[currentTab]||[]).findIndex(x => String(x.id) === String(id));
-  if (idx === -1) return;
-  const r = DB[currentTab][idx];
-  DB[currentTab][idx] = {...r, status:'Arquivado', editedBy:currentUser.login, editedAt:nowStr()};
+  let tabDoReg='';let r=null;
+  for(const[t,rows] of Object.entries(DB)){const found=(rows||[]).find(x=>String(x.id)===String(id));if(found){tabDoReg=t;r=found;break;}}
+  if(!r)return;
+  const idx=(DB[tabDoReg]||[]).findIndex(x=>String(x.id)===String(id));
+  DB[tabDoReg][idx]={...r,status:'Arquivado',editedBy:currentUser.login,editedAt:nowStr()};
   buildTabs(); render();
-  try {
-    await api('saveAuth', {tab:currentTab, record:DB[currentTab][idx]});
-    await pushAudit('edit', `Arquivou reg. ${r.registro} — ${r.nome}`);
+  try{
+    await api('saveAuth',{tab:tabDoReg,record:DB[tabDoReg][idx]});
+    await pushAudit('edit',`Arquivou reg. ${r.registro} — ${r.nome}`);
     toast('📁 Registro arquivado');
-  } catch(e) { toast('Erro: '+e.message, true); }
+  }catch(e){toast('Erro: '+e.message,true);}
 }
 
 async function reabrir(tab, id) {
@@ -1947,6 +1950,7 @@ function showEncerramento(){
 // ═══════════════════════════════════════════════
 function setFilter(f){currentFilter=f;render();}
 function setConv(c){currentConv=c;render();}
+function setMes(m){currentMes=m;render();}
 function doSort(k){if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=1;}render();}
 
 function exportCSV(){
