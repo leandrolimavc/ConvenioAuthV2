@@ -1796,9 +1796,14 @@ async function delUser(id){
 // ═══════════════════════════════════════════════
 // ARQUIVADOS — ACTIONS
 // ═══════════════════════════════════════════════
-async function arquivar(id) {
-  let tabDoReg='';let r=null;
-  for(const[t,rows] of Object.entries(DB)){const found=(rows||[]).find(x=>String(x.id)===String(id));if(found){tabDoReg=t;r=found;break;}}
+async function arquivar(id, _mesKey) {
+  let tabDoReg=_mesKey||'';
+  let r=null;
+  if(!tabDoReg){
+    for(const[t,rows] of Object.entries(DB)){const found=(rows||[]).find(x=>String(x.id)===String(id));if(found){tabDoReg=t;r=found;break;}}
+  } else {
+    r=(DB[tabDoReg]||[]).find(x=>String(x.id)===String(id));
+  }
   if(!r)return;
   const idx=(DB[tabDoReg]||[]).findIndex(x=>String(x.id)===String(id));
   DB[tabDoReg][idx]={...r,status:'Arquivado',editedBy:currentUser.login,editedAt:nowStr()};
