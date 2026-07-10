@@ -878,6 +878,15 @@ let currentTab    = '📋 Autorizações';
 let currentFilter = 'all';
 let currentConv   = 'Todos';
 let currentMes    = 'Todos';
+
+// RECORDS = lista plana de todos os registros com campo .mes
+function getRecords() {
+  const out = [];
+  Object.entries(DB).forEach(([tab, rows]) => {
+    (rows||[]).forEach(r => out.push({...r, _tab: tab}));
+  });
+  return out;
+}
 let sortKey = '';
 let sortDir = 1;
 let editAuthId   = null;
@@ -1300,50 +1309,63 @@ function getRows() {
 
 function buildRows(rows) {
   const isAdmin = currentUser?.role === 'admin';
-  if (!rows.length) return `<tr><td colspan="9"><div class="empty"><div class="empty-ico">🔎</div><div>Nenhum registro encontrado</div></div></td></tr>`;
+  if (!rows.length) return `<tr><td colspan="8"><div class="empty"><div class="empty-ico">🔎</div><div>Nenhum registro encontrado</div></div></td></tr>`;
   return rows.map((r,i) => `
-    <tr class="${rowClass(r)}" style="animation-delay:${i*.02}s">
+    <tr class="${rowCls(r)}" style="animation-delay:${i*.02}s">
       <td class="num">${r.registro||'—'}</td>
       <td>${badge(r.status)}</td>
-      <td>${convTag(r.convenio)}</td>
-      <td class="nome-cell">${r.nome||'—'}</td>
+      <td>${cv(r.convenio)}</td>
+      <td class="nome-c">${r.nome||'—'}</td>
       <td class="num" style="color:var(--muted)">${r.guia||'—'}</td>
       <td>${prazoBadge(r)}</td>
-      <td class="obs-cell" title="${r.obs||''}">${r.obs||'—'}</td>
-      <td>${rastreioCell(r)}</td>
+      <td class="obs-c" title="${r.obs||''}">${r.obs||'—'}</td>
+      <td>${rastr(r)}</td>
       <td><div class="acts">
-        <button class="act" onclick="openAuth('${r.id}')">✏</button>
+        <button class="act" onclick="openAuth('${r.id}','${r._tab||''}')">✏</button>
         <button class="act" onclick="openHist('${r.id}')">🕐</button>
-        <button class="act success" onclick="arquivar('${r.id}')" title="Arquivar">📁</button>
-        ${isAdmin?`<button class="act danger" onclick="delAuth('${r.id}')">🗑</button>`:''}
+        <button class="act ok" onclick="arquivar('${r.id}','${r._tab||''}')">📁</button>
+        ${isAdmin?`<button class="act danger" onclick="delAuth('${r.id}','${r._tab||''}')">🗑</button>`:''}
       </div></td>
     </tr>`).join('');
 }
 
+
 function renderMain() {
   const rows  = getRows();
-  const total = (DB[currentTab]||[]).filter(r => r.status !== 'Autorizado').length;
-  const convs = ['Todos', ...new Set((DB[currentTab]||[]).map(r=>r.convenio).filter(Boolean))].sort((a,b)=>a==='Todos'?-1:a.localeCompare(b,'pt-BR'));
-  const convBtns = convs.map(c => `<button class="conv-pill${currentConv===c?' on':''}" onclick="setConv('${c}')">${c}</button>`).join('');
+  const allRec = getRecords().filter(r => r.status!=='Autorizado'&&r.status!=='Arquivado');
+  const total  = allRec.length;
+
+  // Pills de mês — baseado nos _tab dos registros
+  const tabsExist = [...new Set(getRecords().map(r=>r._tab).filter(Boolean))].sort((a,b)=>{
+    const[ma,ya]=a.split(' ');const[mb,yb]=b.split(' ');
+    return ya!==yb?parseInt(ya)-parseInt(yb):MESES_KEY.indexOf(ma)-MESES_KEY.indexOf(mb);
+  });
+  const mesBtns = ['Todos',...tabsExist].map(m =>
+    `<button class="conv-pill${currentMes===m?' on':''}" onclick="setMes('${m}')">${m==='Todos'?'Todos':getMesLabel(m)}</button>`
+  ).join('');
+
+  // Pills de convênio
+  const convs = ['Todos',...new Set(allRec.map(r=>r.convenio).filter(Boolean))].sort((a,b)=>a==='Todos'?-1:a.localeCompare(b,'pt-BR'));
+  const convBtns = convs.map(c =>
+    `<button class="conv-pill${currentConv===c?' on':''}" onclick="setConv('${c}')">${c}</button>`
+  ).join('');
 
   return `
     <div class="page-hd">
-      <div class="page-hd-left">
-        <h2>${getMesLabel(currentTab)}</h2>
-        <p>${total} autorizações em aberto</p>
-      </div>
+      <div><h2>Autorizações</h2><p>${total} registros em aberto</p></div>
       <button class="btn-add" onclick="openAuth()">+ Nova Autorização</button>
     </div>
     <div class="toolbar">
-      <div class="search-box"><span class="search-icon">🔍</span>
-        <input type="text" id="srch" placeholder="Buscar por nome, registro, convênio ou guia..." oninput="liveSearch(this.value)" autocomplete="off">
+      <div class="search-box"><span class="s-ico">🔍</span>
+        <input type="text" id="srch" placeholder="Buscar por nome, registro, convênio..." oninput="liveSearch(this.value)" autocomplete="off">
       </div>
-      <button class="filter-btn${currentFilter==='all'?' fa':''}" onclick="setFilter('all')">Todos</button>
-      <button class="filter-btn${currentFilter==='Análise'?' fb':''}" onclick="setFilter('Análise')">Em Análise</button>
-      <button class="filter-btn${currentFilter==='Exigência'?' fc':''}" onclick="setFilter('Exigência')">Exigência</button>
-      <button class="filter-btn${currentFilter==='Negada'?' fd':''}" onclick="setFilter('Negada')">Negada</button>
+      <button class="filter-btn${currentFilter==='all'?' fb-all':''}" onclick="setFilter('all')">Todos</button>
+      <button class="filter-btn${currentFilter==='Análise'?' fb-ana':''}" onclick="setFilter('Análise')">Em Análise</button>
+      <button class="filter-btn${currentFilter==='Exigência'?' fb-exi':''}" onclick="setFilter('Exigência')">Exigência</button>
+      <button class="filter-btn${currentFilter==='Negada'?' fb-neg':''}" onclick="setFilter('Negada')">Negada</button>
     </div>
-    <div class="conv-bar"><span class="conv-bar-label">Convênio:</span>${convBtns}</div>
+    <div class="conv-bar"><span class="conv-lbl">🗓 Mês:</span>${mesBtns}</div>
+    <div class="conv-bar"><span class="conv-lbl">Convênio:</span>${convBtns}</div>
     <div class="card">
       <table>
         <thead><tr>
@@ -1356,7 +1378,7 @@ function renderMain() {
         <tbody id="tbody">${buildRows(rows)}</tbody>
       </table>
       <div class="tfoot">
-        <span id="row-count">${rows.length} de ${total} registros (todos os meses)</span>
+        <span id="row-count">${rows.length} de ${total} registros</span>
         <div style="display:flex;gap:10px;align-items:center">
           <button class="btn-csv" onclick="exportCSV()">↓ CSV</button>
           <span>Fonte: Google Sheets ✓</span>
@@ -1365,660 +1387,26 @@ function renderMain() {
     </div>`;
 }
 
+
 function liveSearch(q) {
   q = q.toLowerCase();
-  let rows = (DB[currentTab]||[]).filter(r => {
-    if (r.status === 'Autorizado') return false;
-    if (currentFilter !== 'all' && r.status !== currentFilter) return false;
-    if (currentConv !== 'Todos' && r.convenio !== currentConv) return false;
-    return !q || (r.registro||'').includes(q) || (r.nome||'').toLowerCase().includes(q) ||
-           (r.convenio||'').toLowerCase().includes(q) || (r.guia||'').includes(q) || (r.obs||'').toLowerCase().includes(q);
+  let rows = getRecords().filter(r => {
+    if (r.status==='Autorizado'||r.status==='Arquivado') return false;
+    if (currentMes!=='Todos' && r._tab!==currentMes) return false;
+    if (currentFilter!=='all' && r.status!==currentFilter) return false;
+    if (currentConv!=='Todos' && r.convenio!==currentConv) return false;
+    return !q
+      || (r.registro||'').includes(q)
+      || (r.nome||'').toLowerCase().includes(q)
+      || (r.convenio||'').toLowerCase().includes(q)
+      || (r.guia||'').includes(q)
+      || (r.obs||'').toLowerCase().includes(q);
   });
   if (sortKey) rows.sort((a,b)=>(a[sortKey]||'').localeCompare(b[sortKey]||'','pt-BR')*sortDir);
   const tbody = document.getElementById('tbody');
   if (tbody) {
     tbody.innerHTML = buildRows(rows);
-    const cnt = document.getElementById('row-count');
-    if (cnt) cnt.textContent = `${rows.length} de ${(DB[currentTab]||[]).filter(r=>r.status!=='Autorizado').length} registros`;
+    const total = getRecords().filter(r=>r.status!=='Autorizado'&&r.status!=='Arquivado').length;
+    s('row-count', `${rows.length} de ${total} registros`);
   }
 }
-
-// ── URGENTES ──────────────────────────────────────────────────────
-function renderUrgentes() {
-  const urg = getUrgentes();
-  const venc = urg.filter(r=>r._prazo.status==='vencido');
-  const hj   = urg.filter(r=>r._prazo.status==='urgente');
-  const alt  = urg.filter(r=>r._prazo.status==='alerta');
-
-  function urgRows(list) {
-    if (!list.length) return `<tr><td colspan="8"><div class="empty"><div class="empty-ico">✅</div><div>Nenhum nesta categoria</div></div></td></tr>`;
-    return list.map((r,i) => `
-      <tr class="rs-${r._prazo.status}" style="animation-delay:${i*.02}s">
-        <td style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace">${getMesLabel(r._tab)}</td>
-        <td class="num">${r.registro||'—'}</td>
-        <td>${convTag(r.convenio)}</td>
-        <td class="nome-cell">${r.nome||'—'}</td>
-        <td>${badge(r.status)}</td>
-        <td><span class="prazo-badge pb-${r._prazo.status==='alerta'?'alerta':r._prazo.status==='urgente'?'urgente':'vencido'}">${r._prazo.label}</span></td>
-        <td class="num" style="color:var(--muted)">${r.guia||'—'}</td>
-        <td><div class="acts">
-          <button class="act" onclick="jumpTo('${r._tab}','${r.id}')">↗</button>
-          <button class="act" onclick="openHist('${r.id}')">🕐</button>
-        </div></td>
-      </tr>`).join('');
-  }
-
-  function sec(title, color, list) {
-    return `
-      <div class="mes-label" style="color:${color}">${title} (${list.length})</div>
-      <div class="card" style="margin-bottom:16px">
-        <table>
-          <thead><tr><th>Mês</th><th>Registro</th><th>Convênio</th><th>Paciente</th><th>Status</th><th>Prazo</th><th>Guia</th><th>Ações</th></tr></thead>
-          <tbody>${urgRows(list)}</tbody>
-        </table>
-      </div>`;
-  }
-
-  return `
-    <div class="section-banner sb-urg">
-      <div class="sb-icon">🚨</div>
-      <div><div class="sb-title">Autorizações Urgentes</div><div class="sb-sub">Registros em análise com prazo vencido ou próximo</div></div>
-      <div class="sb-count">${urg.length} pendentes</div>
-    </div>
-    ${urg.length===0
-      ? `<div class="empty" style="padding:60px"><div class="empty-ico">✅</div><div>Nenhuma autorização urgente!</div></div>`
-      : sec('🔴 Vencidos','var(--red)',venc)
-      + sec('🔴 Vencem hoje ou em 2 dias','#dc4c4c',hj)
-      + sec('🟡 Vencem em 3–4 dias','var(--amber)',alt)
-    }`;
-}
-
-// ── ARQUIVADOS ────────────────────────────────────────────────────────────────
-let arquFilter = 'all';
-let arquConv   = 'Todos';
-let arquSearch = '';
-
-function renderArquivados() {
-  const isAdmin = currentUser?.role === 'admin';
-  const todos   = getArquivados();
-  const total   = todos.length;
-
-  // Filtros
-  let filtrados = [...todos];
-  if (arquFilter !== 'all') filtrados = filtrados.filter(r => r.status === arquFilter);
-  if (arquConv !== 'Todos') filtrados = filtrados.filter(r => r.convenio === arquConv);
-  if (arquSearch) {
-    const q = arquSearch.toLowerCase();
-    filtrados = filtrados.filter(r =>
-      (r.registro||'').includes(q)||(r.nome||'').toLowerCase().includes(q)||
-      (r.convenio||'').toLowerCase().includes(q)||(r.guia||'').includes(q)
-    );
-  }
-
-  // Agrupar por mês
-  const byMes = {};
-  filtrados.forEach(r => { (byMes[r._tab] = byMes[r._tab]||[]).push(r); });
-
-  // Convênios e status disponíveis
-  const convs = ['Todos',...new Set(todos.map(r=>r.convenio).filter(Boolean))].sort((a,b)=>a==='Todos'?-1:a.localeCompare(b,'pt-BR'));
-  const convBtns = convs.map(c=>`<button class="conv-pill${arquConv===c?' on':''}" onclick="setArquConv('${c}')">${c}</button>`).join('');
-  const statusList = [...new Set(todos.map(r=>r.status).filter(Boolean))];
-  const statusBtns = [
-    `<button class="filter-btn${arquFilter==='all'?' fa':''}" onclick="setArquFilter('all')">Todos</button>`,
-    ...statusList.map(s=>`<button class="filter-btn${arquFilter===s?' fa':''}" onclick="setArquFilter('${s}')">${s}</button>`)
-  ].join('');
-
-  const body = Object.keys(byMes).length === 0
-    ? `<div class="empty" style="padding:60px"><div class="empty-ico">📁</div><div>Nenhum registro encontrado</div></div>`
-    : Object.entries(byMes).map(([mes, rows]) => `
-        <div class="mes-label">📅 ${getMesLabel(mes)} — ${rows.length} registro${rows.length!==1?'s':''}</div>
-        <div class="card" style="margin-bottom:16px">
-          <table>
-            <thead><tr>
-              <th>Registro</th><th>Status</th><th>Convênio</th><th>Paciente</th>
-              <th>Guia</th><th>Rastreio</th><th>Obs.</th><th>Ações</th>
-            </tr></thead>
-            <tbody>${rows.map((r,i)=>`
-              <tr style="animation-delay:${i*.02}s">
-                <td class="num">${r.registro||'—'}</td>
-                <td>${badge(r.status)}</td>
-                <td>${convTag(r.convenio)}</td>
-                <td class="nome-cell">${r.nome||'—'}</td>
-                <td class="num" style="color:var(--muted)">${r.guia||'—'}</td>
-                <td>${rastreioCell(r)}</td>
-                <td class="obs-cell">${r.obs||'—'}</td>
-                <td><div class="acts">
-                  <button class="act success" onclick="reabrir('${r._tab}','${r.id}')">↩ Reabrir</button>
-                  <button class="act" onclick="openHist('${r.id}')">🕐</button>
-                  ${isAdmin?`<button class="act danger" onclick="delArquivado('${r._tab}','${r.id}')">🗑</button>`:''}
-                </div></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`).join('');
-
-  return `
-    <div class="section-banner sb-arch">
-      <div class="sb-icon">✅</div>
-      <div><div class="sb-title">Autorizações Arquivadas</div>
-      <div class="sb-sub">Clique em "Reabrir" para mover de volta para Em Análise</div></div>
-      <div class="sb-count">${filtrados.length} de ${total}</div>
-    </div>
-    <div class="toolbar">
-      <div class="search-box"><span class="search-icon">🔍</span>
-        <input type="text" id="arqu-srch" placeholder="Buscar nos arquivados..." value="${arquSearch}"
-          oninput="arquSearch=this.value;renderArqInPlace()">
-      </div>
-      ${statusBtns}
-    </div>
-    <div class="conv-bar"><span class="conv-bar-label">Convênio:</span>${convBtns}</div>
-    ${body}`;
-}
-
-function setArquFilter(f) { arquFilter=f; renderArqInPlace(); }
-function setArquConv(c)   { arquConv=c;   renderArqInPlace(); }
-function renderArqInPlace() { document.getElementById('main').innerHTML = renderArquivados(); }
-
-// ── UNIMED ────────────────────────────────────────────────────────
-function renderUnimed() {
-  const isAdmin = currentUser?.role === 'admin';
-  const rows = UNIMED.map((r,i) => `
-    <tr style="animation-delay:${i*.02}s">
-      <td class="nome-cell">${r.nome||'—'}</td>
-      <td class="num" style="color:var(--green)">${r.data||'—'}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--blue)">${r.tel||'—'}</td>
-      <td class="rastreio"><div class="r-who">${r.createdBy||'—'}</div><div class="r-dt">${r.createdAt||''}</div></td>
-      <td><div class="acts">
-        <button class="act" onclick="openUnimed('${r.id}')">✏</button>
-        ${isAdmin?`<button class="act danger" onclick="delUnimed('${r.id}')">🗑</button>`:''}
-      </div></td>
-    </tr>`).join('');
-
-  return `
-    <div class="page-hd">
-      <div class="page-hd-left"><h2>Unimed Genesy</h2><p>Pacientes aguardando autorização no sistema Genesy</p></div>
-      <button class="btn-add green" onclick="openUnimed()">+ Adicionar Paciente</button>
-    </div>
-    <div class="section-banner sb-uni">
-      <div class="sb-icon">🏥</div>
-      <div><div class="sb-title">Pegar Autorização no Genesy</div><div class="sb-sub">Verifique as datas agendadas</div></div>
-      <div class="sb-count">${UNIMED.length} paciente${UNIMED.length!==1?'s':''}</div>
-    </div>
-    <div class="card">
-      <table>
-        <thead><tr><th>Nome do Paciente</th><th>Data Agendada</th><th>Telefone</th><th>Cadastrado por</th><th>Ações</th></tr></thead>
-        <tbody>${rows||`<tr><td colspan="5"><div class="empty"><div class="empty-ico">🏥</div><div>Nenhum paciente cadastrado</div></div></td></tr>`}</tbody>
-      </table>
-      <div class="tfoot"><span>${UNIMED.length} pacientes</span><span style="color:var(--green);font-weight:700">Autorização pendente</span></div>
-    </div>`;
-}
-
-// ── ADM ───────────────────────────────────────────────────────────
-function renderAdm() {
-  const userList = USERS.map(u => {
-    const ini = (u.fullname||'?').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
-    const col = u.color || '#1a56db';
-    return `<div class="user-item">
-      <div class="user-left">
-        <div class="user-av" style="background:${col}18;color:${col}">${ini}</div>
-        <div><div class="user-name">${u.fullname}</div><div class="user-login">@${u.login}</div></div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="role-chip ${u.role==='admin'?'rc-admin':'rc-user'}">${u.role==='admin'?'Admin':'Usuário'}</span>
-        <button class="act" onclick="openUser('${u.id}')">✏</button>
-        ${String(u.id)!==String(currentUser.id)?`<button class="act danger" onclick="delUser('${u.id}')">🗑</button>`:''}
-      </div>
-    </div>`;
-  }).join('');
-
-  const auditHtml = AUDIT.slice(0,60).map(a => {
-    const cls = {create:'ae-create',edit:'ae-edit',delete:'ae-delete',login:'ae-login'}[a.action]||'ae-login';
-    const lbl = {create:'➕ Criou',edit:'✏️ Editou',delete:'🗑 Excluiu',login:'🔑 Login'}[a.action]||'📌';
-    return `<div class="audit-entry">
-      <div class="ae-top"><span class="ae-action ${cls}">${lbl}</span><span class="ae-ts">${a.timestamp||''}</span></div>
-      <div class="ae-desc"><b>${a.user||''}</b> (@${a.login||''}) — ${a.detail||''}</div>
-    </div>`;
-  }).join('');
-
-  return `
-    <div class="page-hd"><div class="page-hd-left"><h2>Administração</h2><p>Gestão de usuários e auditoria do sistema</p></div></div>
-    <div class="adm-grid">
-      <div class="adm-card">
-        <div class="adm-hd"><div class="adm-hd-title">👥 Usuários</div><button class="btn-add" style="padding:6px 12px;font-size:11px" onclick="openUser()">+ Novo</button></div>
-        <div class="adm-body">
-          <div class="user-list">${userList||'<div class="empty"><div class="empty-ico">👤</div><div>Nenhum usuário</div></div>'}</div>
-          <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">URL do Apps Script</div>
-            <div class="url-field">
-              <input type="text" id="url-adm" value="${API}">
-              <button class="btn-sm" onclick="saveUrlAdm()">Salvar</button>
-            </div>
-          </div>
-          <div class="danger-zone">
-            <div class="danger-label">⚠ Zona de Perigo</div>
-            <button class="btn-danger" onclick="openDestroy()">🔴 Encerrar Sistema</button>
-          </div>
-        </div>
-      </div>
-      <div class="adm-card">
-        <div class="adm-hd"><div class="adm-hd-title">📋 Log de Auditoria</div><span style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace">${AUDIT.length} eventos</span></div>
-        <div class="adm-body"><div class="audit-feed">${auditHtml||'<div class="empty"><div class="empty-ico">📋</div><div>Nenhum evento ainda</div></div>'}</div></div>
-      </div>
-    </div>`;
-}
-
-function saveUrlAdm() {
-  const url = document.getElementById('url-adm').value.trim();
-  if (!url.startsWith('https://script.google.com')) { toast('URL inválida', true); return; }
-  API = url; localStorage.setItem('ca_api', url); toast('URL atualizada com sucesso');
-}
-
-// ═══════════════════════════════════════════════
-// MODAIS — AUTORIZAÇÃO
-// ═══════════════════════════════════════════════
-function openAuth(id) {
-  editAuthId = id || null;
-  const title = id ? 'Editar Autorização' : 'Nova Autorização';
-  document.getElementById('m-auth-title').textContent = title;
-  if (id) {
-    const r = (DB[currentTab]||[]).find(x => String(x.id) === String(id));
-    if (!r) return;
-    set2('fa-reg', r.registro); set2('fa-guia', r.guia||'');
-    set2('fa-status', r.status); set2('fa-conv', r.convenio);
-    set2('fa-nome', r.nome); set2('fa-obs', r.obs||'');
-  } else {
-    ['fa-reg','fa-guia','fa-nome','fa-obs'].forEach(f=>set2(f,''));
-    set2('fa-status',''); set2('fa-conv','');
-  }
-  openModal('m-auth');
-}
-
-async function saveAuth() {
-  const registro = val('fa-reg');
-  const guia     = val('fa-guia');
-  const status   = val('fa-status');
-  const convenio = val('fa-conv');
-  const nome     = val('fa-nome');
-  const obs      = val('fa-obs');
-  if (!registro||!nome||!status||!convenio) { toast('Preencha os campos obrigatórios (*)', true); return; }
-
-  setBtnLoading('btn-save-auth', true);
-  const now   = nowStr();
-  const isNew = !editAuthId;
-  const id    = editAuthId || String(nextId++);
-  if (!DB[currentTab]) DB[currentTab] = [];
-
-  if (isNew) {
-    DB[currentTab].push({id,registro,guia,status,convenio,nome,obs,createdBy:currentUser.login,createdAt:now,editedBy:'',editedAt:''});
-  } else {
-    const idx = DB[currentTab].findIndex(x=>String(x.id)===String(editAuthId));
-    if (idx!==-1) DB[currentTab][idx]={...DB[currentTab][idx],registro,guia,status,convenio,nome,obs,editedBy:currentUser.login,editedAt:now};
-  }
-
-  // Histórico local
-  if (!HISTORY[id]) HISTORY[id]=[];
-  HISTORY[id].unshift({action:isNew?'create':'edit',user:currentUser.fullname,login:currentUser.login,timestamp:now,
-    detail:`${status} | ${convenio} | Guia: ${guia||'—'} | Obs: ${obs||'—'}`});
-
-  closeAll(); buildTabs(); render();
-
-  try {
-    const record = (DB[currentTab]||[]).find(x=>String(x.id)===String(id));
-    await api('saveAuth',{tab:currentTab,record});
-    await pushAudit(isNew?'create':'edit',`${isNew?'Criou':'Editou'} reg. ${registro} — ${nome}`);
-    toast(isNew?'Registro criado no Sheets':'Registro atualizado no Sheets');
-  } catch(e) { toast('Salvo localmente. Erro Sheets: '+e.message, true); }
-  finally { setBtnLoading('btn-save-auth', false, '💾 Salvar'); }
-}
-
-async function delAuth(id) {
-  if (!confirm('Excluir este registro?')) return;
-  const r = (DB[currentTab]||[]).find(x=>String(x.id)===String(id));
-  DB[currentTab]=(DB[currentTab]||[]).filter(x=>String(x.id)!==String(id));
-  buildTabs(); render();
-  try { await api('deleteAuth',{tab:currentTab,id}); await pushAudit('delete',`Excluiu reg. ${r?.registro||id} — ${r?.nome||''}`); toast('Registro excluído'); }
-  catch(e){ toast('Erro: '+e.message,true); }
-}
-
-// ═══════════════════════════════════════════════
-// MODAIS — UNIMED
-// ═══════════════════════════════════════════════
-function openUnimed(id) {
-  editUnimedId = id || null;
-  document.getElementById('m-uni-title').textContent = id ? 'Editar Paciente' : 'Adicionar Paciente Unimed';
-  if (id) {
-    const r = UNIMED.find(x=>String(x.id)===String(id));
-    if (!r) return;
-    set2('fu-nome', r.nome); set2('fu-tel', r.tel||'');
-    const p = (r.data||'').split('/');
-    document.getElementById('fu-data').value = p.length===3 ? `${p[2]}-${p[1]}-${p[0]}` : '';
-  } else {
-    ['fu-nome','fu-tel'].forEach(f=>set2(f,''));
-    document.getElementById('fu-data').value='';
-  }
-  openModal('m-uni');
-}
-
-async function saveUnimed() {
-  const nome = val('fu-nome');
-  const tel  = val('fu-tel');
-  const raw  = document.getElementById('fu-data').value;
-  let data   = '—';
-  if (raw) { const [y,m,d]=raw.split('-'); data=`${d}/${m}/${y}`; }
-  if (!nome) { toast('Preencha o nome do paciente', true); return; }
-
-  setBtnLoading('btn-save-uni', true);
-  const isNew = !editUnimedId;
-  const id    = editUnimedId || String(nextId++);
-  const now   = nowStr();
-
-  if (isNew) UNIMED.push({id,nome,data,tel,createdBy:currentUser.login,createdAt:now});
-  else { const idx=UNIMED.findIndex(x=>String(x.id)===String(editUnimedId)); if(idx!==-1) UNIMED[idx]={...UNIMED[idx],nome,data,tel}; }
-
-  closeAll(); buildTabs(); render();
-  try {
-    const record = UNIMED.find(x=>String(x.id)===String(id));
-    await api('saveUnimed',{record});
-    await pushAudit(isNew?'create':'edit',`${isNew?'Adicionou':'Editou'} paciente Unimed: ${nome}`);
-    toast(isNew?'Paciente salvo no Sheets':'Paciente atualizado');
-  } catch(e){toast('Salvo localmente. Erro: '+e.message,true);}
-  finally{setBtnLoading('btn-save-uni',false,'💾 Salvar Paciente');}
-}
-
-async function delUnimed(id) {
-  if (!confirm('Excluir este paciente?')) return;
-  const r = UNIMED.find(x=>String(x.id)===String(id));
-  UNIMED = UNIMED.filter(x=>String(x.id)!==String(id));
-  buildTabs(); render();
-  try{await api('deleteUnimed',{id});await pushAudit('delete',`Excluiu paciente Unimed: ${r?.nome||id}`);toast('Paciente excluído');}
-  catch(e){toast('Erro: '+e.message,true);}
-}
-
-// ═══════════════════════════════════════════════
-// MODAIS — USUÁRIO
-// ═══════════════════════════════════════════════
-function openUser(id) {
-  editUserId = id || null;
-  document.getElementById('m-user-title').textContent = id ? 'Editar Usuário' : 'Novo Usuário';
-  if (id) {
-    const u = USERS.find(x=>String(x.id)===String(id));
-    if (!u) return;
-    set2('fu2-name',u.fullname); set2('fu2-login',u.login);
-    set2('fu2-pass',u.password||''); set2('fu2-role',u.role);
-  } else {
-    ['fu2-name','fu2-login','fu2-pass'].forEach(f=>set2(f,''));
-    set2('fu2-role','user');
-  }
-  openModal('m-user');
-}
-
-async function saveUser() {
-  const fullname = val('fu2-name');
-  const login    = val('fu2-login');
-  const password = val('fu2-pass');
-  const role     = val('fu2-role');
-  if(!fullname||!login||!password){toast('Preencha todos os campos',true);return;}
-  if(password.length<6){toast('Senha mínimo 6 caracteres',true);return;}
-
-  setBtnLoading('btn-save-user',true);
-  const isNew=!editUserId;
-  const id=editUserId||String(nextId++);
-  const colors=['#1a56db','#7c3aed','#059669','#dc2626','#d97706','#0891b2'];
-  const color=colors[USERS.length%colors.length];
-
-  if(isNew){
-    if(USERS.find(u=>u.login===login)){toast('Login já existe!',true);setBtnLoading('btn-save-user',false,'💾 Salvar Usuário');return;}
-    USERS.push({id,fullname,login,password,role,color,createdAt:nowStr()});
-  } else {
-    const idx=USERS.findIndex(x=>String(x.id)===String(editUserId));
-    if(idx!==-1) USERS[idx]={...USERS[idx],fullname,login,password,role};
-  }
-  closeAll(); render();
-  try{
-    const record=USERS.find(x=>String(x.id)===String(id));
-    await api('saveUser',{record});
-    await pushAudit(isNew?'create':'edit',`${isNew?'Criou':'Editou'} usuário @${login} (${role})`);
-    toast(isNew?'Usuário criado no Sheets':'Usuário atualizado');
-  }catch(e){toast('Salvo localmente. Erro: '+e.message,true);}
-  finally{setBtnLoading('btn-save-user',false,'💾 Salvar Usuário');}
-}
-
-async function delUser(id){
-  if(String(id)===String(currentUser.id)){toast('Não pode excluir sua própria conta',true);return;}
-  if(!confirm('Excluir este usuário?'))return;
-  const u=USERS.find(x=>String(x.id)===String(id));
-  USERS=USERS.filter(x=>String(x.id)!==String(id));render();
-  try{await api('deleteUser',{id});await pushAudit('delete',`Excluiu usuário @${u?.login||id}`);toast('Usuário excluído');}
-  catch(e){toast('Erro: '+e.message,true);}
-}
-
-// ═══════════════════════════════════════════════
-// ARQUIVADOS — ACTIONS
-// ═══════════════════════════════════════════════
-async function arquivar(id, _mesKey) {
-  let tabDoReg=_mesKey||'';
-  let r=null;
-  if(!tabDoReg){
-    for(const[t,rows] of Object.entries(DB)){const found=(rows||[]).find(x=>String(x.id)===String(id));if(found){tabDoReg=t;r=found;break;}}
-  } else {
-    r=(DB[tabDoReg]||[]).find(x=>String(x.id)===String(id));
-  }
-  if(!r)return;
-  const idx=(DB[tabDoReg]||[]).findIndex(x=>String(x.id)===String(id));
-  DB[tabDoReg][idx]={...r,status:'Arquivado',editedBy:currentUser.login,editedAt:nowStr()};
-  buildTabs(); render();
-  try{
-    await api('saveAuth',{tab:tabDoReg,record:DB[tabDoReg][idx]});
-    await pushAudit('edit',`Arquivou reg. ${r.registro} — ${r.nome}`);
-    toast('📁 Registro arquivado');
-  }catch(e){toast('Erro: '+e.message,true);}
-}
-
-async function reabrir(tab, id) {
-  const idx=(DB[tab]||[]).findIndex(x=>String(x.id)===String(id));
-  if(idx===-1)return;
-  DB[tab][idx]={...DB[tab][idx],status:'Análise',editedBy:currentUser.login,editedAt:nowStr()};
-  MESES=gerarMeses();
-  buildTabs();render();
-  try{await api('saveAuth',{tab,record:DB[tab][idx]});await pushAudit('edit',`Reabriu reg. ${DB[tab][idx].registro} — ${DB[tab][idx].nome}`);toast('↩ Registro reaberto para Em Análise');}
-  catch(e){toast('Erro: '+e.message,true);}
-}
-
-async function delArquivado(tab,id){
-  if(!confirm('Excluir permanentemente este registro?'))return;
-  const r=(DB[tab]||[]).find(x=>String(x.id)===String(id));
-  DB[tab]=(DB[tab]||[]).filter(x=>String(x.id)!==String(id));
-  buildTabs();render();
-  try{await api('deleteAuth',{tab,id});await pushAudit('delete',`Excluiu arquivado ${r?.registro||id} — ${r?.nome||''}`);toast('Registro excluído');}
-  catch(e){toast('Erro: '+e.message,true);}
-}
-
-// ═══════════════════════════════════════════════
-// BUSCA GLOBAL
-// ═══════════════════════════════════════════════
-function openGS(){
-  set2('gs-q','');
-  document.getElementById('gs-results').innerHTML='<div class="empty"><div class="empty-ico">🔎</div><div>Digite para buscar em todos os meses</div></div>';
-  openModal('m-gs');
-  setTimeout(()=>document.getElementById('gs-q').focus(),100);
-}
-
-function runGS(q){
-  q=q.toLowerCase().trim();
-  const res=document.getElementById('gs-results');
-  if(!q){res.innerHTML='<div class="empty"><div class="empty-ico">🔎</div><div>Digite algo para buscar</div></div>';return;}
-  const found=[];
-  Object.entries(DB).forEach(([tab,rows])=>{
-    (rows||[]).forEach(r=>{
-      if((r.registro||'').includes(q)||(r.nome||'').toLowerCase().includes(q)||
-         (r.convenio||'').toLowerCase().includes(q)||(r.guia||'').includes(q)||(r.obs||'').toLowerCase().includes(q)){
-        found.push({...r,_tab:tab});
-      }
-    });
-  });
-  if(!found.length){res.innerHTML='<div class="empty"><div class="empty-ico">🔎</div><div>Nenhum resultado encontrado</div></div>';return;}
-  res.innerHTML=`<div class="gsearch-list">${found.slice(0,40).map(r=>`
-    <div class="gs-item" onclick="jumpTo('${r._tab}','${r.id}')">
-      <span class="gs-tab">${getMesLabel(r._tab)}</span>
-      ${convTag(r.convenio)}
-      <div style="flex:1">
-        <div class="gs-nome">${r.nome}</div>
-        <div style="display:flex;gap:8px;margin-top:2px"><span class="gs-reg">${r.registro}</span>${badge(r.status)}</div>
-      </div>
-    </div>`).join('')}
-  </div>`;
-}
-
-function jumpTo(tab,id){
-  closeAll();
-  currentTab=tab;currentFilter='all';currentConv='Todos';sortKey='';sortDir=1;
-  buildTabs();render();
-  setTimeout(()=>{
-    document.querySelectorAll('#tbody tr').forEach(tr=>{
-      if(tr.innerHTML.includes(`"${id}"`)||tr.textContent.includes(id.slice(-4))){
-        tr.style.transition='background .5s';
-        tr.style.background='rgba(26,86,219,.15)';
-        tr.scrollIntoView({behavior:'smooth',block:'center'});
-        setTimeout(()=>tr.style.background='',2500);
-      }
-    });
-  },300);
-}
-
-// ═══════════════════════════════════════════════
-// HISTÓRICO
-// ═══════════════════════════════════════════════
-function openHist(id){
-  const reg = Object.values(DB).flat().find(r=>String(r.id)===String(id));
-  const hist = HISTORY[id]||[];
-  const auditEntries = AUDIT.filter(a=>(a.detail||'').includes(reg?.registro||'__'))
-    .map(a=>({action:a.action,user:a.user,login:a.login,timestamp:a.timestamp,detail:a.detail}));
-
-  const all = [...hist,...auditEntries].sort((a,b)=>(b.timestamp||'').localeCompare(a.timestamp||''));
-
-  const items = all.length ? all : [
-    reg?.editedBy&&reg?.editedAt ? {action:'edit',user:reg.editedBy,timestamp:reg.editedAt,detail:'Última edição'} : null,
-    reg?.createdBy ? {action:'create',user:reg.createdBy,timestamp:reg.createdAt||'—',detail:'Registro criado'} : null,
-  ].filter(Boolean);
-
-  const cls={create:'hi-create',edit:'hi-edit',delete:'hi-delete'};
-  const lbl={create:'➕ Criado',edit:'✏️ Editado',delete:'🗑 Excluído',login:'🔑 Login'};
-
-  document.getElementById('hist-content').innerHTML = items.length===0
-    ? '<div class="empty"><div class="empty-ico">📋</div><div>Nenhum histórico disponível</div></div>'
-    : items.slice(0,30).map(h=>`
-        <div class="hist-item">
-          <div class="hi-top">
-            <span class="hi-ev ${cls[h.action]||'ae-login'}">${lbl[h.action]||'📌'}</span>
-            <span class="hi-ts">${h.timestamp||''}</span>
-          </div>
-          <div class="hi-desc"><b>${h.user||'—'}</b>${h.login?` (@${h.login})`:''} — ${h.detail||''}</div>
-        </div>`).join('');
-
-  openModal('m-hist');
-}
-
-// ═══════════════════════════════════════════════
-// DESTRUIÇÃO
-// ═══════════════════════════════════════════════
-function openDestroy(){
-  set2('d-pass','');
-  document.getElementById('d-err').classList.remove('on');
-  openModal('m-destroy');
-  setTimeout(()=>document.getElementById('d-pass').focus(),100);
-}
-
-async function confirmDestroy(){
-  const pass=document.getElementById('d-pass').value;
-  if(pass!==DESTROY_PASS){
-    document.getElementById('d-err').classList.add('on');
-    set2('d-pass','');
-    return;
-  }
-  closeAll();
-  try {
-    await api('setConfig',{chave:'status',valor:'inativo'});
-  } catch(e){}
-  localStorage.setItem('ca_enc','1');
-  showEncerramento();
-}
-
-function showEncerramento(){
-  hide('loading');hide('login');hide('app');
-  const el=document.getElementById('encerramento');
-  el.style.display='flex';
-}
-
-// ═══════════════════════════════════════════════
-// FILTER / SORT / EXPORT
-// ═══════════════════════════════════════════════
-function setFilter(f){currentFilter=f;render();}
-function setConv(c){currentConv=c;render();}
-function setMes(m){currentMes=m;render();}
-function doSort(k){if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=1;}render();}
-
-function exportCSV(){
-  const rows=DB[currentTab]||[];
-  const csv='Registro,Status,Convênio,Nome,Guia,Observação,CriadoPor,CriadoEm,EditadoPor,EditadoEm\n'+
-    rows.map(r=>`${r.registro},"${r.status}","${r.convenio}","${r.nome}","${r.guia||''}","${r.obs||''}","${r.createdBy||''}","${r.createdAt||''}","${r.editedBy||''}","${r.editedAt||''}"`).join('\n');
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
-  a.download=`autorizacoes_${currentTab.replace(/ /g,'_')}.csv`;
-  a.click();toast('CSV exportado');
-}
-
-// ═══════════════════════════════════════════════
-// AUDITORIA
-// ═══════════════════════════════════════════════
-async function pushAudit(action,detail){
-  const entry={action,detail,user:currentUser.fullname,login:currentUser.login,timestamp:nowStr()};
-  AUDIT.unshift(entry);
-  try{await api('addAudit',entry);}catch(_){}
-}
-
-// ═══════════════════════════════════════════════
-// MODAL HELPERS
-// ═══════════════════════════════════════════════
-function openModal(id){document.getElementById(id).classList.add('on');}
-function closeAll(){
-  ['m-auth','m-uni','m-user','m-gs','m-hist','m-destroy'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.classList.remove('on');
-  });
-  editAuthId=editUnimedId=editUserId=null;
-}
-['m-auth','m-uni','m-user','m-gs','m-hist','m-destroy'].forEach(id=>{
-  const el=document.getElementById(id);
-  if(el) el.addEventListener('click',e=>{if(e.target===e.currentTarget)closeAll();});
-});
-
-// ═══════════════════════════════════════════════
-// TOAST
-// ═══════════════════════════════════════════════
-function toast(msg,err=false){
-  const t=document.getElementById('toast');
-  t.textContent=msg;
-  t.className='toast'+(err?' err':'');
-  t.classList.add('on');
-  setTimeout(()=>t.classList.remove('on'),3200);
-}
-
-// ═══════════════════════════════════════════════
-// UTILS
-// ═══════════════════════════════════════════════
-function hide(id){const el=document.getElementById(id);if(el)el.style.display='none';}
-function show(id,d='block'){const el=document.getElementById(id);if(el)el.style.display=d;}
-function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
-function set2(id,v){const el=document.getElementById(id);if(el)el.value=v;}
-function val(id){const el=document.getElementById(id);return el?(el.value.trim()):''}
-function nowStr(){return new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});}
-function setBtnLoading(id,loading,original=''){
-  const btn=document.getElementById(id);
-  if(!btn)return;
-  btn.disabled=loading;
-  if(loading){btn.dataset.orig=btn.textContent;btn.textContent='Salvando...';}
-  else btn.textContent=original||btn.dataset.orig||'Salvar';
-}
-</script>
-</body>
-</html>
